@@ -26,6 +26,7 @@
 
 #include <thread>
 
+#include "HeldHints.h"
 #include "Power.h"
 #include "PowerExt.h"
 #include "utils/ThermalStateListener.h"
@@ -76,6 +77,7 @@ int main() {
         ::android::base::WaitForProperty(kPowerHalInitProp.data(), "1");
         HintManager::GetInstance()->Start();
         ThermalStateListener::getInstance()->init();
+        ::aidl::google::hardware::power::impl::pixel::WatchHeldHints();
     });
     initThread.detach();
 
