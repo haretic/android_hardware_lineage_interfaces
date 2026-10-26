@@ -497,46 +497,26 @@ void CameraDeviceSession::ResultBatcher::sendBatchShutterCbsLocked(
 }
 
 void CameraDeviceSession::ResultBatcher::freeReleaseFences(std::vector<CaptureResult>& results) {
+    // The fences' FDs belong to their AIDL handles: dropping these closes each once, where closing
+    // a native handle made over the same FDs closed them a second time as the results went
     for (auto& result : results) {
-        if (::android::makeFromAidl(result.inputBuffer.releaseFence) != nullptr) {
-            native_handle_t* handle = const_cast<native_handle_t*>(
-                    ::android::makeFromAidl(result.inputBuffer.releaseFence));
-            native_handle_close(handle);
-            native_handle_delete(handle);
-        }
+        result.inputBuffer.releaseFence = makeToAidlIfNotNull(nullptr);
         for (auto& buf : result.outputBuffers) {
-            if (::android::makeFromAidl(buf.releaseFence) != nullptr) {
-                native_handle_t* handle =
-                        const_cast<native_handle_t*>(::android::makeFromAidl(buf.releaseFence));
-                native_handle_close(handle);
-                native_handle_delete(handle);
-            }
+            buf.releaseFence = makeToAidlIfNotNull(nullptr);
         }
     }
     return;
 }
 
 void CameraDeviceSession::ResultBatcher::moveStreamBuffer(StreamBuffer&& src, StreamBuffer& dst) {
-    // Only dealing with releaseFence here. Assume buffer/acquireFence are null
-    const native_handle_t* handle = ::android::makeFromAidl(src.releaseFence);
-    src.releaseFence = makeToAidlIfNotNull(nullptr);
+    // The release fence's FDs move with its AIDL handle, still owned once
     dst = std::move(src);
-    dst.releaseFence = makeToAidlIfNotNull(handle);
-    if (handle != ::android::makeFromAidl(dst.releaseFence)) {
-        ALOGE("%s: native handle cloned!", __FUNCTION__);
-    }
 }
 
 void CameraDeviceSession::ResultBatcher::pushStreamBuffer(StreamBuffer&& src,
                                                           std::vector<StreamBuffer>& dst) {
-    // Only dealing with releaseFence here. Assume buffer/acquireFence are null
-    const native_handle_t* handle = ::android::makeFromAidl(src.releaseFence);
-    src.releaseFence = makeToAidlIfNotNull(nullptr);
+    // The release fence's FDs move with its AIDL handle, still owned once
     dst.push_back(std::move(src));
-    dst.back().releaseFence = makeToAidlIfNotNull(handle);
-    if (handle != ::android::makeFromAidl(dst.back().releaseFence)) {
-        ALOGE("%s: native handle cloned!", __FUNCTION__);
-    }
 }
 
 void CameraDeviceSession::ResultBatcher::sendBatchBuffersLocked(
@@ -1510,6 +1490,8 @@ status_t CameraDeviceSession::constructCaptureResult(CaptureResult& result,
             native_handle_t* handle = native_handle_create(/*numFds*/ 1, /*numInts*/ 0);
             handle->data[0] = hal_result->input_buffer->release_fence;
             result.inputBuffer.releaseFence = makeToAidlIfNotNull(handle);
+            // The AIDL handle owns the fence now; the native handle was only its holder
+            native_handle_delete(handle);
         } else {
             result.inputBuffer.releaseFence = makeToAidlIfNotNull(nullptr);
         }
@@ -1535,6 +1517,8 @@ status_t CameraDeviceSession::constructCaptureResult(CaptureResult& result,
             native_handle_t* handle = native_handle_create(/*numFds*/ 1, /*numInts*/ 0);
             handle->data[0] = hal_result->output_buffers[i].release_fence;
             result.outputBuffers[i].releaseFence = makeToAidlIfNotNull(handle);
+            // The AIDL handle owns the fence now; the native handle was only its holder
+            native_handle_delete(handle);
         } else {
             result.outputBuffers[i].releaseFence = makeToAidlIfNotNull(nullptr);
         }
